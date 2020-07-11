@@ -1,0 +1,8 @@
+.idea/
+bin/
+pkg/
+src/
+config.yaml
+deploy.sh
+*.html
+butterbot

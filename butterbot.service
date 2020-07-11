@@ -1,0 +1,11 @@
+[Unit]
+After=network.target
+After=docker.service
+[Service]
+Restart=always
+Environment="DOCKER_HOST=tcp://127.0.0.1:2375"
+ExecStart=/usr/bin/docker run --rm --name butterbot --restart no --network=host butterbot:latest
+ExecStop=/usr/bin/docker stop butterbot
+ExecStopPost=/usr/bin/docker container rm butterbot
+[Install]
+WantedBy=multi-user.target
