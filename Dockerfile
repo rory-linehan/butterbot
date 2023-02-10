@@ -1,4 +1,4 @@
-FROM golang:1.11-alpine
+FROM golang:1.19.5-alpine
 
 RUN addgroup -S butterbot && adduser -S butterbot -G butterbot
 RUN apk add --no-cache git

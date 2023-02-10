@@ -27,5 +27,4 @@ butterbot:
       status: false  # desired initial state; if true then first status notification is up 
       message: "initial state"
     #- name: ...
-
 ```
