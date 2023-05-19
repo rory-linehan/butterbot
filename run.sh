@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# bash run.sh jyro-0:5000/
+
 repo=${1:-}
 
 docker build -t ${repo}butterbot:latest .

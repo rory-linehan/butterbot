@@ -5,13 +5,12 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/segmentio/kafka-go"
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
 
@@ -93,19 +92,15 @@ type EventResult struct {
 	message string
 }
 
-func logError(error error) {
-	fmt.Println("butterbot: error:", error)
-}
-
 func getConfig() Config {
 	c := Config{}
 	yamlFile, err := ioutil.ReadFile("config.yaml")
 	if err != nil {
-		logError(err)
+		log.Error(err)
 	}
 	err = yaml.Unmarshal(yamlFile, &c)
 	if err != nil {
-		logError(err)
+		log.Error(err)
 	}
 	return c
 }
@@ -180,7 +175,7 @@ func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
 	}
 
 	if err := r.Close(); err != nil {
-		fmt.Println("butterbot: error: failed to close reader:", err)
+		log.Info("butterbot: error: failed to close reader:", err)
 		result.status = false
 		result.err = err
 	}
@@ -212,7 +207,7 @@ func kafkaEventChecker(event *KafkaEvent) EventResult {
 				msg := make(map[string]interface{})
 				err := json.Unmarshal(message.Value, &msg)
 				if err != nil {
-					fmt.Println("butterbot: error: failed to unmarshal json message:", err)
+					log.Info("butterbot: error: failed to unmarshal json message:", err)
 				}
 				json.Unmarshal(message.Value, &msg)
 				valid := true
@@ -228,10 +223,10 @@ func kafkaEventChecker(event *KafkaEvent) EventResult {
 					}
 				}
 				if !valid {
-					fmt.Println("invalid event: " + string(message.Value))
+					log.Info("invalid event: " + string(message.Value))
 					result.status = false
 				} else {
-					fmt.Println("found valid event: " + string(message.Value))
+					log.Info("found valid event: " + string(message.Value))
 					// extract fields from kafka event and construct notification string
 					for _, field := range event.Parameters.Extract {
 						result.message = result.message + ", " + field + ": " + msg[field].(string)
@@ -242,7 +237,7 @@ func kafkaEventChecker(event *KafkaEvent) EventResult {
 	}
 
 	if err := r.Close(); err != nil {
-		fmt.Println("butterbot: error: failed to close reader:", err)
+		log.Info("butterbot: error: failed to close reader:", err)
 	}
 
 	return result
@@ -252,7 +247,7 @@ func executeTextWebhook(n *Notifier, message string) error {
 	if n.Type == "discord" {
 		message = "{\"content\":\"" + message + "\"}"
 	} else {
-		fmt.Println("botterbot: warn: notifier type is invalid, expecting [discord]")
+		log.Info("botterbot: warn: notifier type is invalid, expecting [discord]")
 		return nil
 	}
 	r, err := http.Post(n.Url, n.ContentType, bytes.NewBufferString(message))
@@ -263,7 +258,7 @@ func executeTextWebhook(n *Notifier, message string) error {
 			buf := new(bytes.Buffer)
 			_, _ = buf.ReadFrom(r.Body) // this could be problematic
 			response := buf.String()
-			fmt.Println(
+			log.Info(
 				"butterbot: error: failed to execute",
 				n.Type,
 				n.Name,
@@ -297,10 +292,12 @@ func notify(checkNotifiers []string, notifiers []Notifier, message string) error
 }
 
 func main() {
-	fmt.Println("butterbot: info: started")
+	log.SetFormatter(&log.JSONFormatter{})
+	log.Info("started")
+
 	config := getConfig()
-	fmt.Println("butterbot: info: loaded config.yaml:")
-	spew.Dump(config)
+	log.Info("loaded config.yaml")
+	log.Debug(config)
 	for {
 		for index, check := range config.Butterbot.HTTPChecks {
 			result := HTTPChecker(&check)
@@ -309,7 +306,7 @@ func main() {
 					check.Message = check.Name + " is up"
 					err := notify(check.Notify, config.Butterbot.Notifiers, check.Message)
 					if err != nil {
-						logError(err)
+						log.Error(err)
 					}
 					config.Butterbot.HTTPChecks[index].Status = true
 				}
@@ -318,12 +315,12 @@ func main() {
 					check.Message = check.Name + " is down"
 					err := notify(check.Notify, config.Butterbot.Notifiers, check.Message)
 					if err != nil {
-						logError(err)
+						log.Error(err)
 					}
 					config.Butterbot.HTTPChecks[index].Status = false
 				}
 			} else {
-				fmt.Println("butterbot: error:", check.Name, "check failed:", result.message)
+				log.Info("butterbot: error:", check.Name, "check failed:", result.message)
 			}
 		}
 
@@ -337,7 +334,7 @@ func main() {
 						check.Message = check.Name + " is down"
 						err := notify(check.Notify, config.Butterbot.Notifiers, check.Message)
 						if err != nil {
-							logError(err)
+							log.Error(err)
 						}
 						config.Butterbot.KafkaTopicChecks[index].Status = false
 					}
@@ -347,7 +344,7 @@ func main() {
 					check.Message = check.Name + " is up"
 					err := notify(check.Notify, config.Butterbot.Notifiers, check.Message)
 					if err != nil {
-						logError(err)
+						log.Error(err)
 					}
 					config.Butterbot.KafkaTopicChecks[index].Status = true
 				}
@@ -359,13 +356,13 @@ func main() {
 		for _, event := range config.Butterbot.KafkaEvents {
 			result := kafkaEventChecker(&event)
 			if result.status {
-				fmt.Println(result)
+				log.Info(result)
 				err := notify(event.Notify, config.Butterbot.Notifiers, result.message)
 				if err != nil {
-					logError(err)
+					log.Error(err)
 				}
 			} else if result.err != nil {
-				logError(result.err)
+				log.Error(result.err)
 			}
 		}
 
