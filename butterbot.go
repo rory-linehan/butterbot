@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"io/ioutil"
+	"flag"
+	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -92,16 +94,24 @@ type EventResult struct {
 	message string
 }
 
-func getConfig() Config {
+func getConfig(file string) Config {
+	handle, err := os.Open(file)
+	if err != nil {
+		log.Fatalf("failed to open file: %s", err)
+	}
+	defer handle.Close()
+
+	content, err := io.ReadAll(handle)
+	if err != nil {
+		log.Fatalf("failed to read file: %s", err)
+	}
+
 	c := Config{}
-	yamlFile, err := ioutil.ReadFile("config.yaml")
+	err = yaml.Unmarshal(content, &c)
 	if err != nil {
 		log.Error(err)
 	}
-	err = yaml.Unmarshal(yamlFile, &c)
-	if err != nil {
-		log.Error(err)
-	}
+
 	return c
 }
 
@@ -175,7 +185,7 @@ func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
 	}
 
 	if err := r.Close(); err != nil {
-		log.Info("butterbot: error: failed to close reader:", err)
+		log.Info("error: failed to close reader:", err)
 		result.status = false
 		result.err = err
 	}
@@ -207,7 +217,7 @@ func kafkaEventChecker(event *KafkaEvent) EventResult {
 				msg := make(map[string]interface{})
 				err := json.Unmarshal(message.Value, &msg)
 				if err != nil {
-					log.Info("butterbot: error: failed to unmarshal json message:", err)
+					log.Info("error: failed to unmarshal json message:", err)
 				}
 				json.Unmarshal(message.Value, &msg)
 				valid := true
@@ -237,7 +247,7 @@ func kafkaEventChecker(event *KafkaEvent) EventResult {
 	}
 
 	if err := r.Close(); err != nil {
-		log.Info("butterbot: error: failed to close reader:", err)
+		log.Info("error: failed to close reader:", err)
 	}
 
 	return result
@@ -259,7 +269,7 @@ func executeTextWebhook(n *Notifier, message string) error {
 			_, _ = buf.ReadFrom(r.Body) // this could be problematic
 			response := buf.String()
 			log.Info(
-				"butterbot: error: failed to execute",
+				"error: failed to execute",
 				n.Type,
 				n.Name,
 				"webhook: status:",
@@ -292,12 +302,23 @@ func notify(checkNotifiers []string, notifiers []Notifier, message string) error
 }
 
 func main() {
-	log.SetFormatter(&log.JSONFormatter{})
-	log.Info("started")
+	logLevel := flag.String("log-level", "info", "log level")
+	configFile := flag.String("config-file", "config.yaml", "config file location")
+	flag.Parse()
 
-	config := getConfig()
-	log.Info("loaded config.yaml")
+	log.SetFormatter(&log.JSONFormatter{})
+	log.Info("given log level: ", *logLevel)
+	level, err := log.ParseLevel(*logLevel)
+	if err != nil {
+		log.Fatalf("invalid log level: %s", err)
+	}
+	log.Info("started")
+	log.SetLevel(level)
+
+	log.Debug(*configFile)
+	config := getConfig(*configFile)
 	log.Debug(config)
+
 	for {
 		for index, check := range config.Butterbot.HTTPChecks {
 			result := HTTPChecker(&check)
@@ -320,7 +341,7 @@ func main() {
 					config.Butterbot.HTTPChecks[index].Status = false
 				}
 			} else {
-				log.Info("butterbot: error:", check.Name, "check failed:", result.message)
+				log.Info("error:", check.Name, "check failed:", result.message)
 			}
 		}
 
