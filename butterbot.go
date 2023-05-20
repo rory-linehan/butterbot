@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -94,6 +95,11 @@ type EventResult struct {
 	message string
 }
 
+type MessageReader interface {
+	ReadMessage(ctx context.Context) (kafka.Message, error)
+	Close() error
+}
+
 func getConfig(file string) Config {
 	handle, err := os.Open(file)
 	if err != nil {
@@ -142,7 +148,7 @@ func HTTPChecker(check *HTTPCheck) HTTPCheckResult {
 		} else {
 			return HTTPCheckResult{
 				status:  false,
-				message: "received response.StatusCode [" + string(response.StatusCode) + "] other than configured: [" + string(check.Parameters.Code) + "]",
+				message: "received response.StatusCode [" + fmt.Sprint(response.StatusCode) + "] other than configured: [" + fmt.Sprint(check.Parameters.Code) + "]",
 				err:     err,
 			}
 		}
@@ -193,21 +199,16 @@ func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
 	return result
 }
 
-func kafkaEventChecker(event *KafkaEvent) EventResult {
+func kafkaEventChecker(reader MessageReader, event *KafkaEvent) EventResult {
 	result := EventResult{
 		status:  true,
 		err:     nil,
 		message: event.Name + ": ",
 	}
-	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{event.Parameters.Host + ":9092"},
-		Topic:   event.Parameters.Topic,
-		GroupID: "butterbot",
-	})
 
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*1))
-		message, err := r.ReadMessage(ctx)
+		message, err := reader.ReadMessage(ctx)
 		cancel()
 		if err != nil {
 			result.status = false
@@ -229,6 +230,7 @@ func kafkaEventChecker(event *KafkaEvent) EventResult {
 					for _, key := range keys {
 						if msg[key] != filter[key] {
 							valid = false
+							log.Debug("invalid event: msg[key]: ", msg[key], " filter[key]: ", filter[key])
 						}
 					}
 				}
@@ -239,14 +241,15 @@ func kafkaEventChecker(event *KafkaEvent) EventResult {
 					log.Info("found valid event: " + string(message.Value))
 					// extract fields from kafka event and construct notification string
 					for _, field := range event.Parameters.Extract {
-						result.message = result.message + ", " + field + ": " + msg[field].(string)
+						result.message = result.message + field + ": " + msg[field].(string)
 					}
 				}
 			}
+			return result
 		}
 	}
 
-	if err := r.Close(); err != nil {
+	if err := reader.Close(); err != nil {
 		log.Info("error: failed to close reader:", err)
 	}
 
@@ -375,7 +378,12 @@ func main() {
 		}
 
 		for _, event := range config.Butterbot.KafkaEvents {
-			result := kafkaEventChecker(&event)
+			reader := kafka.NewReader(kafka.ReaderConfig{
+				Brokers: []string{event.Parameters.Host + ":9092"},
+				Topic:   event.Parameters.Topic,
+				GroupID: "butterbot",
+			})
+			result := kafkaEventChecker(reader, &event)
 			if result.status {
 				log.Info(result)
 				err := notify(event.Notify, config.Butterbot.Notifiers, result.message)
