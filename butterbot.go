@@ -55,11 +55,11 @@ type KafkaTopicCheck struct {
 }
 
 type KafkaEvent struct {
-	Name       string
-	Notify     []string
-	Parameters struct {
-		Host    string
-		Topic   string
+	Host   string
+	Topic  string
+	Notify []string
+	Events []struct {
+		Name    string
 		Key     string
 		Filter  []map[string]string
 		Extract []string
@@ -199,11 +199,11 @@ func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
 	return result
 }
 
-func kafkaEventChecker(reader MessageReader, event *KafkaEvent) EventResult {
+func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent) EventResult {
 	result := EventResult{
 		status:  true,
 		err:     nil,
-		message: event.Name + ": ",
+		message: "",
 	}
 
 	for {
@@ -214,38 +214,40 @@ func kafkaEventChecker(reader MessageReader, event *KafkaEvent) EventResult {
 			result.status = false
 			break
 		} else {
-			if string(message.Key) == event.Parameters.Key {
-				msg := make(map[string]interface{})
-				err := json.Unmarshal(message.Value, &msg)
-				if err != nil {
-					log.Info("error: failed to unmarshal json message:", err)
-				}
-				json.Unmarshal(message.Value, &msg)
-				valid := true
-				for _, filter := range event.Parameters.Filter {
-					keys := make([]string, 0, len(filter))
-					for k := range filter {
-						keys = append(keys, k)
+			for _, event := range kafkaEvent.Events {
+				if string(message.Key) == event.Key {
+					result.message = event.Name + ": "
+					msg := make(map[string]interface{})
+					err := json.Unmarshal(message.Value, &msg)
+					if err != nil {
+						log.Info("error: failed to unmarshal json message:", err)
 					}
-					for _, key := range keys {
-						if msg[key] != filter[key] {
-							valid = false
-							log.Debug("invalid event: msg[key]: ", msg[key], " filter[key]: ", filter[key])
+					valid := true
+					for _, filter := range event.Filter {
+						keys := make([]string, 0, len(filter))
+						for k := range filter {
+							keys = append(keys, k)
+						}
+						for _, key := range keys {
+							if msg[key] != filter[key] {
+								valid = false
+								log.Debug("invalid event: msg[key]: ", msg[key], " filter[key]: ", filter[key])
+							}
 						}
 					}
-				}
-				if !valid {
-					log.Info("invalid event: " + string(message.Value))
-					result.status = false
-				} else {
-					log.Info("found valid event: " + string(message.Value))
-					// extract fields from kafka event and construct notification string
-					for _, field := range event.Parameters.Extract {
-						result.message = result.message + field + ": " + msg[field].(string)
+					if !valid {
+						log.Info("invalid event: " + string(message.Value))
+						result.status = false
+					} else {
+						log.Info("found valid event: " + string(message.Value))
+						// extract fields from kafka event and construct notification string
+						for _, field := range event.Extract {
+							result.message = result.message + field + ": " + fmt.Sprintf("%v ", msg[field])
+						}
 					}
+					return result
 				}
 			}
-			return result
 		}
 	}
 
@@ -379,8 +381,8 @@ func main() {
 
 		for _, event := range config.Butterbot.KafkaEvents {
 			reader := kafka.NewReader(kafka.ReaderConfig{
-				Brokers: []string{event.Parameters.Host + ":9092"},
-				Topic:   event.Parameters.Topic,
+				Brokers: []string{event.Host + ":9092"},
+				Topic:   event.Topic,
 				GroupID: "butterbot",
 			})
 			result := kafkaEventChecker(reader, &event)
