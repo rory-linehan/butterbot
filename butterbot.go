@@ -329,7 +329,6 @@ func main() {
 		log.Debug("running HTTP checks")
 		for index, check := range config.Butterbot.HTTPChecks {
 			result := HTTPChecker(&check)
-			log.Debug(result.err)
 			if result.status && result.err == nil {
 				if !check.Status {
 					check.Message = check.Name + " is up"
