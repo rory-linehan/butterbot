@@ -45,6 +45,7 @@ type KafkaTopicCheck struct {
 	Notify     []string
 	Parameters struct {
 		Host    string
+		Port    string
 		Topic   string
 		Timeout int
 	}
@@ -56,13 +57,14 @@ type KafkaTopicCheck struct {
 
 type KafkaEvent struct {
 	Host   string
+	Port   string
 	Topic  string
-	Notify []string
 	Events []struct {
 		Name    string
 		Key     string
 		Filter  []map[string]string
 		Extract []string
+		Notify  []string
 	}
 	Offset int64 `default:"0"`
 }
@@ -93,6 +95,7 @@ type EventResult struct {
 	status  bool
 	err     error
 	message string
+	notify  []string
 }
 
 type MessageReader interface {
@@ -171,7 +174,7 @@ func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
 	}
 
 	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:   []string{check.Parameters.Host + ":9092"},
+		Brokers:   []string{check.Parameters.Host + ":" + check.Parameters.Port},
 		Topic:     check.Parameters.Topic,
 		Partition: 0,
 		MaxBytes:  10e6, // 10MB
@@ -217,11 +220,13 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent) EventResult
 			for _, event := range kafkaEvent.Events {
 				if string(message.Key) == event.Key {
 					result.message = event.Name + ": "
+					result.notify = event.Notify
 					msg := make(map[string]interface{})
 					err := json.Unmarshal(message.Value, &msg)
 					if err != nil {
 						log.Info("error: failed to unmarshal json message:", err)
 					}
+					log.Debug(msg)
 					valid := true
 					for _, filter := range event.Filter {
 						keys := make([]string, 0, len(filter))
@@ -381,14 +386,14 @@ func main() {
 
 		for _, event := range config.Butterbot.KafkaEvents {
 			reader := kafka.NewReader(kafka.ReaderConfig{
-				Brokers: []string{event.Host + ":9092"},
+				Brokers: []string{event.Host + ":" + event.Port},
 				Topic:   event.Topic,
 				GroupID: "butterbot",
 			})
 			result := kafkaEventChecker(reader, &event)
 			if result.status {
 				log.Info(result)
-				err := notify(event.Notify, config.Butterbot.Notifiers, result.message)
+				err := notify(result.notify, config.Butterbot.Notifiers, result.message)
 				if err != nil {
 					log.Error(err)
 				}

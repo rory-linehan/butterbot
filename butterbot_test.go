@@ -88,7 +88,7 @@ func Test_kafkaEventChecker(t *testing.T) {
 			Offset:        0,
 			HighWaterMark: 0,
 			Key:           []byte("testKey"),
-			Value:         []byte("{\"filterField\":\"filterFieldValue\",\"extractField\":[\"extractValueElement1\",\"extractValueElement2\"]}"),
+			Value:         []byte("{\"filterField\":\"filterFieldValue\",\"extractField\":[\"extractValueElement1\",\"extractValueElement2\"],\"otherExtractField\":\"otherExtractValue\"}"),
 			Topic:         "testTopic",
 		},
 		mockErr: nil,
@@ -108,6 +108,7 @@ func Test_kafkaEventChecker(t *testing.T) {
 			args: args{
 				event: &KafkaEvent{
 					Host:   "testKafkaHost",
+					Port:   "9092",
 					Topic:  "testTopic",
 					Notify: nil,
 					Events: []struct {
@@ -126,6 +127,7 @@ func Test_kafkaEventChecker(t *testing.T) {
 							},
 							Extract: []string{
 								"extractField",
+								"otherExtractField",
 							},
 						},
 					},
@@ -135,7 +137,7 @@ func Test_kafkaEventChecker(t *testing.T) {
 			want: EventResult{
 				status:  true,
 				err:     nil,
-				message: "validEvent: extractField: [extractValueElement1 extractValueElement2] ",
+				message: "validEvent: extractField: [extractValueElement1 extractValueElement2] otherExtractField: otherExtractValue ",
 			},
 		},
 	}
