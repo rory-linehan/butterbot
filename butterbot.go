@@ -135,7 +135,6 @@ func HTTPChecker(check *HTTPCheck) HTTPCheckResult {
 	if check.Parameters.Verb == "get" {
 		response, err := client.Get(check.Parameters.Url)
 		if err != nil {
-			log.Debug(err)
 			return HTTPCheckResult{
 				status:  false,
 				message: "HTTP GET request failed",
@@ -340,6 +339,7 @@ func main() {
 					config.Butterbot.HTTPChecks[index].Status = true
 				}
 			} else if !result.status && result.err != nil {
+				log.Debug(result.err)
 				if check.Status {
 					check.Message = check.Name + " is down"
 					err := notify(check.Notify, config.Butterbot.Notifiers, check.Message)
