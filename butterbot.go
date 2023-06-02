@@ -135,6 +135,7 @@ func HTTPChecker(check *HTTPCheck) HTTPCheckResult {
 	if check.Parameters.Verb == "get" {
 		response, err := client.Get(check.Parameters.Url)
 		if err != nil {
+			log.Debug(err)
 			return HTTPCheckResult{
 				status:  false,
 				message: "HTTP GET request failed",
