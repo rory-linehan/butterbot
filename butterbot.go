@@ -130,7 +130,7 @@ func HTTPChecker(check *HTTPCheck) HTTPCheckResult {
 	}
 	client := &http.Client{
 		Transport: tr,
-		Timeout:   5 * time.Second,
+		Timeout:   time.Duration(check.Parameters.Timeout) * time.Second,
 	}
 	if check.Parameters.Verb == "get" {
 		response, err := client.Get(check.Parameters.Url)
@@ -204,17 +204,16 @@ func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
 
 func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent) EventResult {
 	result := EventResult{
-		status:  true,
+		status:  false,
 		err:     nil,
 		message: "",
+		notify:  []string{},
 	}
-
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*1))
 		message, err := reader.ReadMessage(ctx)
 		cancel()
 		if err != nil {
-			result.status = false
 			break
 		} else {
 			for _, event := range kafkaEvent.Events {
@@ -226,7 +225,6 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent) EventResult
 					if err != nil {
 						log.Info("error: failed to unmarshal json message:", err)
 					}
-					log.Debug(msg)
 					valid := true
 					for _, filter := range event.Filter {
 						keys := make([]string, 0, len(filter))
@@ -236,30 +234,28 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent) EventResult
 						for _, key := range keys {
 							if msg[key] != filter[key] {
 								valid = false
-								log.Debug("invalid event: msg[key]: ", msg[key], " filter[key]: ", filter[key])
 							}
 						}
 					}
-					if !valid {
-						log.Info("invalid event: " + string(message.Value))
-						result.status = false
-					} else {
+					if valid {
 						log.Info("found valid event: " + string(message.Value))
 						// extract fields from kafka event and construct notification string
 						for _, field := range event.Extract {
 							result.message = result.message + field + ": " + fmt.Sprintf("%v ", msg[field])
 						}
+						result.status = true
+						break
 					}
-					return result
 				}
+			}
+			if result.status {
+				break
 			}
 		}
 	}
-
 	if err := reader.Close(); err != nil {
 		log.Info("error: failed to close reader:", err)
 	}
-
 	return result
 }
 
@@ -330,8 +326,10 @@ func main() {
 	log.Debug(config)
 
 	for {
+		log.Debug("running HTTP checks")
 		for index, check := range config.Butterbot.HTTPChecks {
 			result := HTTPChecker(&check)
+			log.Debug(result.err)
 			if result.status && result.err == nil {
 				if !check.Status {
 					check.Message = check.Name + " is up"
@@ -355,6 +353,7 @@ func main() {
 			}
 		}
 
+		log.Debug("running kafka topic checks")
 		for index, check := range config.Butterbot.KafkaTopicChecks {
 			result := kafkaTopicChecker(&check)
 			// has the check result state diverged from the previous?
@@ -384,6 +383,7 @@ func main() {
 			config.Butterbot.KafkaTopicChecks[index].LastMessage = result.lastMessage
 		}
 
+		log.Debug("running kafka event checks")
 		for _, event := range config.Butterbot.KafkaEvents {
 			reader := kafka.NewReader(kafka.ReaderConfig{
 				Brokers: []string{event.Host + ":" + event.Port},
