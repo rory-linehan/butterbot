@@ -139,12 +139,12 @@ func executeTextWebhook(n *Notifier, message string) error {
 			_, _ = buf.ReadFrom(r.Body) // this could be problematic
 			response := buf.String()
 			log.Info(
-				"error: failed to execute",
+				"error: failed to execute ",
 				n.Type,
 				n.Name,
-				"webhook: status:",
+				" webhook: status: ",
 				r.StatusCode,
-				"response:",
+				" response: ",
 				response,
 			)
 		}
@@ -241,7 +241,7 @@ func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
 	}
 
 	if err := r.Close(); err != nil {
-		log.Info("error: failed to close reader:", err)
+		log.Info("error: failed to close reader: ", err)
 		result.status = false
 		result.err = err
 	}
@@ -269,7 +269,7 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent, notifiers [
 					msg := make(map[string]interface{})
 					err := json.Unmarshal(message.Value, &msg)
 					if err != nil {
-						log.Info("error: failed to unmarshal json message:", err)
+						log.Info("error: failed to unmarshal json message: ", err)
 					}
 					valid := true
 					for _, filter := range event.Filter {
@@ -301,7 +301,7 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent, notifiers [
 		}
 	}
 	if err := reader.Close(); err != nil {
-		log.Info("error: failed to close reader:", err)
+		log.Info("error: failed to close reader: ", err)
 	}
 	return result
 }
@@ -348,7 +348,7 @@ func main() {
 					config.Butterbot.HTTPChecks[index].Status = false
 				}
 			} else {
-				log.Info("error:", check.Name, "check failed:", result.message)
+				log.Info("error: ", check.Name, " check failed: ", result.message)
 			}
 		}
 
