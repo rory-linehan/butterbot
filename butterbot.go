@@ -95,7 +95,6 @@ type EventResult struct {
 	status  bool
 	err     error
 	message string
-	notify  []string
 }
 
 type MessageReader interface {
@@ -122,6 +121,54 @@ func getConfig(file string) Config {
 	}
 
 	return c
+}
+
+func executeTextWebhook(n *Notifier, message string) error {
+	if n.Type == "discord" {
+		message = "{\"content\":\"" + message + "\"}"
+	} else {
+		log.Info("botterbot: warn: notifier type is invalid, expecting [discord]")
+		return nil
+	}
+	r, err := http.Post(n.Url, n.ContentType, bytes.NewBufferString(message))
+	if err != nil {
+		return err
+	} else {
+		if r.StatusCode != n.StatusCode {
+			buf := new(bytes.Buffer)
+			_, _ = buf.ReadFrom(r.Body) // this could be problematic
+			response := buf.String()
+			log.Info(
+				"error: failed to execute",
+				n.Type,
+				n.Name,
+				"webhook: status:",
+				r.StatusCode,
+				"response:",
+				response,
+			)
+		}
+		return nil
+	}
+}
+
+func notify(checkNotifiers []string, notifiers []Notifier, message string) error {
+	for _, checkNotify := range checkNotifiers {
+		for _, notifier := range notifiers {
+			if checkNotify == notifier.Name {
+				err := executeTextWebhook(
+					&notifier,
+					message,
+				)
+				if err != nil {
+					return err
+				} else {
+					return nil
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func HTTPChecker(check *HTTPCheck) HTTPCheckResult {
@@ -202,12 +249,11 @@ func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
 	return result
 }
 
-func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent) EventResult {
+func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent, notifiers []Notifier) EventResult {
 	result := EventResult{
 		status:  false,
 		err:     nil,
 		message: "",
-		notify:  []string{},
 	}
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*1))
@@ -216,10 +262,10 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent) EventResult
 		if err != nil {
 			break
 		} else {
+			result.status = false
 			for _, event := range kafkaEvent.Events {
 				if string(message.Key) == event.Key {
 					result.message = event.Name + ": "
-					result.notify = event.Notify
 					msg := make(map[string]interface{})
 					err := json.Unmarshal(message.Value, &msg)
 					if err != nil {
@@ -244,12 +290,13 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent) EventResult
 							result.message = result.message + field + ": " + fmt.Sprintf("%v ", msg[field])
 						}
 						result.status = true
-						break
+						log.Info(result)
+						err := notify(event.Notify, notifiers, result.message)
+						if err != nil {
+							log.Error(err)
+						}
 					}
 				}
-			}
-			if result.status {
-				break
 			}
 		}
 	}
@@ -257,54 +304,6 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent) EventResult
 		log.Info("error: failed to close reader:", err)
 	}
 	return result
-}
-
-func executeTextWebhook(n *Notifier, message string) error {
-	if n.Type == "discord" {
-		message = "{\"content\":\"" + message + "\"}"
-	} else {
-		log.Info("botterbot: warn: notifier type is invalid, expecting [discord]")
-		return nil
-	}
-	r, err := http.Post(n.Url, n.ContentType, bytes.NewBufferString(message))
-	if err != nil {
-		return err
-	} else {
-		if r.StatusCode != n.StatusCode {
-			buf := new(bytes.Buffer)
-			_, _ = buf.ReadFrom(r.Body) // this could be problematic
-			response := buf.String()
-			log.Info(
-				"error: failed to execute",
-				n.Type,
-				n.Name,
-				"webhook: status:",
-				r.StatusCode,
-				"response:",
-				response,
-			)
-		}
-		return nil
-	}
-}
-
-func notify(checkNotifiers []string, notifiers []Notifier, message string) error {
-	for _, checkNotify := range checkNotifiers {
-		for _, notifier := range notifiers {
-			if checkNotify == notifier.Name {
-				err := executeTextWebhook(
-					&notifier,
-					message,
-				)
-				if err != nil {
-					return err
-				} else {
-					return nil
-				}
-			}
-		}
-	}
-	return nil
 }
 
 func main() {
@@ -390,18 +389,10 @@ func main() {
 				Topic:   event.Topic,
 				GroupID: "butterbot",
 			})
-			result := kafkaEventChecker(reader, &event)
-			if result.status {
-				log.Info(result)
-				err := notify(result.notify, config.Butterbot.Notifiers, result.message)
-				if err != nil {
-					log.Error(err)
-				}
-			} else if result.err != nil {
+			result := kafkaEventChecker(reader, &event, config.Butterbot.Notifiers)
+			if result.err != nil {
 				log.Error(result.err)
 			}
 		}
-
-		time.Sleep(1 * time.Second)
 	}
 }
