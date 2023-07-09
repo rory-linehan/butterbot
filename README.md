@@ -3,6 +3,8 @@
 Passes butter by requesting configured external services, keeping track of responses, 
 and notifying of state changes.
 
+Designed to be extremely lightweight for cloud applications.
+
 Can be configured to watch Kafka topics for new messages, 
 and alert if no new data has come across for a specified interval.
 
@@ -11,13 +13,17 @@ where a message on the topic is transformed into an alert.
 
 ## Usage
 
-#### Docker
+Compile for testing:
 
-* `bash build.sh && docker build -t butterbot:latest`
+* `bash build.sh`
+
+Build Docker image:
+
+* `docker build -t butterbot:latest .`
 
 ### config.yaml
 
-Drop a `config.yaml` into the same directory as the binary that looks like this:
+Create `config.yaml` that looks like this:
 
 ```yaml
 butterbot:
@@ -74,6 +80,8 @@ butterbot:
         extract:
           - myfield
 ```
+
+Run butterbot like this: `./butterbot --config-file config.yaml`
 
 The configuration above would produce alerts like:
 
