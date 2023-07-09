@@ -1,5 +1,7 @@
 # butterbot
 
+## Overview
+
 Passes butter by requesting configured external services, keeping track of responses, 
 and notifying of state changes.
 
@@ -21,9 +23,9 @@ Build Docker image:
 
 * `docker build -t butterbot:latest .`
 
-### config.yaml
+### Running butterbot
 
-Create `config.yaml` that looks like this:
+Create a `config.yaml` file that looks like this:
 
 ```yaml
 butterbot:
@@ -81,7 +83,7 @@ butterbot:
           - myfield
 ```
 
-Run butterbot like this: `./butterbot --config-file config.yaml`
+Run it like this: `./butterbot --config-file config.yaml`
 
 The configuration above would produce alerts like:
 

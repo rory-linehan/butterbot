@@ -127,7 +127,7 @@ func executeTextWebhook(n *Notifier, message string) error {
 	if n.Type == "discord" {
 		message = "{\"content\":\"" + message + "\"}"
 	} else {
-		log.Info("botterbot: warn: notifier type is invalid, expecting [discord]")
+		log.Warn("butterbot: notifier type is invalid, expecting [discord]")
 		return nil
 	}
 	r, err := http.Post(n.Url, n.ContentType, bytes.NewBufferString(message))
@@ -138,8 +138,8 @@ func executeTextWebhook(n *Notifier, message string) error {
 			buf := new(bytes.Buffer)
 			_, _ = buf.ReadFrom(r.Body) // this could be problematic
 			response := buf.String()
-			log.Info(
-				"error: failed to execute ",
+			log.Error(
+				"failed to execute ",
 				n.Type,
 				n.Name,
 				" webhook: status: ",
@@ -269,7 +269,7 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent, notifiers [
 					msg := make(map[string]interface{})
 					err := json.Unmarshal(message.Value, &msg)
 					if err != nil {
-						log.Info("error: failed to unmarshal json message: ", err)
+						log.Error("failed to unmarshal json message: ", err)
 					}
 					valid := true
 					for _, filter := range event.Filter {
@@ -301,7 +301,7 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent, notifiers [
 		}
 	}
 	if err := reader.Close(); err != nil {
-		log.Info("error: failed to close reader: ", err)
+		log.Error(" failed to close reader: ", err)
 	}
 	return result
 }
@@ -348,7 +348,7 @@ func main() {
 					config.Butterbot.HTTPChecks[index].Status = false
 				}
 			} else {
-				log.Info("error: ", check.Name, " check failed: ", result.message)
+				log.Error(check.Name, " check failed: ", result.message)
 			}
 		}
 
