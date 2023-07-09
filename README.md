@@ -5,8 +5,6 @@
 Passes butter by requesting configured external services, keeping track of responses, 
 and notifying of state changes.
 
-Designed to be extremely lightweight for cloud applications.
-
 Can be configured to watch Kafka topics for new messages, 
 and alert if no new data has come across for a specified interval.
 
