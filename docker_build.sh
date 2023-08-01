@@ -2,7 +2,7 @@
 
 repo=${1:-}
 
-docker build -t ${repo}butterbot:latest .
+docker build -t ${repo}/butterbot:latest .
 if [ ! -z "${repo}" ]; then
-  docker push ${repo}butterbot:latest
+  docker push ${repo}/butterbot:latest
 fi
