@@ -5,7 +5,6 @@ RUN apk add --no-cache git
 
 WORKDIR /home/butterbot
 
-ADD config.yaml .
 ADD butterbot.go .
 ADD go.mod .
 ADD go.sum .
