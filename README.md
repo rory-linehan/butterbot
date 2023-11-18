@@ -93,4 +93,4 @@ The configuration above would produce alerts like:
 Where the sent message is constructed like: 
 
 * HTTP alerts and Kafka topic checks: `<name> is up/down`
-* Kafka topic events: `<name>, <extract_field>: <extraced_value>,...`
+* Kafka topic events: `<name>, <extract_field>: <extracted_value>,...`
