@@ -1,7 +1,7 @@
-FROM golang:1.20.3-alpine
+FROM golang:1.22.0-bullseye
 
-RUN addgroup -S butterbot && adduser -S butterbot -G butterbot
-RUN apk add --no-cache git
+RUN useradd -ms /bin/bash butterbot
+RUN apt install -y git
 
 WORKDIR /home/butterbot
 

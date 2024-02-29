@@ -3,7 +3,7 @@ module butterbot
 go 1.19
 
 require (
-	github.com/davecgh/go-spew v1.1.1
+	github.com/confluentinc/confluent-kafka-go v1.9.2
 	github.com/segmentio/kafka-go v0.4.38
 	github.com/sirupsen/logrus v1.9.2
 	gopkg.in/yaml.v2 v2.4.0
