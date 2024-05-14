@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 
-go build -o butterbot butterbot.go && \
-sudo chmod +x butterbot
+go build -o run butterbot.go && \
+sudo chmod +x run
