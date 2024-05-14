@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/tls"
 	"encoding/json"
 	"flag"
@@ -12,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/segmentio/kafka-go"
+	"github.com/confluentinc/confluent-kafka-go/kafka"
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -49,10 +48,10 @@ type KafkaTopicCheck struct {
 		Topic   string
 		Timeout int
 	}
-	Status      bool
-	Offset      int64     `default:"0"`
-	LastMessage time.Time `default:"time.Now()"`
-	Message     string
+	Status          bool
+	Offset          int64     `default:"0"`
+	lastMessageTime time.Time `default:"time.Now()"`
+	Message         string
 }
 
 type KafkaEvent struct {
@@ -70,7 +69,8 @@ type KafkaEvent struct {
 }
 
 type Config struct {
-	Butterbot struct {
+	KafkaTimeout int `yaml:"kafkaTimeout"`
+	Butterbot    struct {
 		Notifiers        []Notifier
 		HTTPChecks       []HTTPCheck
 		KafkaTopicChecks []KafkaTopicCheck
@@ -85,21 +85,16 @@ type HTTPCheckResult struct {
 }
 
 type KafkaTopicResult struct {
-	status      bool
-	err         error
-	offset      int64
-	lastMessage time.Time
+	status          bool
+	err             error
+	offset          int64
+	lastMessageTime time.Time
 }
 
 type EventResult struct {
 	status  bool
 	err     error
 	message string
-}
-
-type MessageReader interface {
-	ReadMessage(ctx context.Context) (kafka.Message, error)
-	Close() error
 }
 
 func getConfig(file string) Config {
@@ -211,36 +206,52 @@ func HTTPChecker(check *HTTPCheck) HTTPCheckResult {
 	}
 }
 
-func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
-	offset := int64(check.Offset)
+func kafkaTopicChecker(check *KafkaTopicCheck, kafkaTimeout int) KafkaTopicResult {
+	offset := check.Offset
 	result := KafkaTopicResult{
-		status:      true,
-		err:         nil,
-		offset:      offset,
-		lastMessage: check.LastMessage,
+		status:          true,
+		err:             nil,
+		offset:          offset,
+		lastMessageTime: check.lastMessageTime,
 	}
 
-	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:   []string{check.Parameters.Host + ":" + check.Parameters.Port},
-		Topic:     check.Parameters.Topic,
-		Partition: 0,
-		MaxBytes:  10e6, // 10MB
+	consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
+		"bootstrap.servers": check.Parameters.Host + ":" + check.Parameters.Port,
+		"group.id":          "butterbot",
+		"auto.offset.reset": "smallest",
 	})
-	r.SetOffset(offset)
-
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*1))
-		_, err := r.ReadMessage(ctx)
-		cancel()
+	if err != nil {
+		log.Error(err)
+	} else {
+		err = consumer.SubscribeTopics([]string{check.Parameters.Topic}, nil)
 		if err != nil {
-			break
+			log.Error(err)
 		} else {
-			result.offset = r.Offset()
-			result.lastMessage = time.Now()
+			for {
+				_, err := consumer.ReadMessage(time.Second * time.Duration(kafkaTimeout))
+				if err != nil {
+					break
+				} else {
+					partitions, err := consumer.Assignment()
+					if err != nil {
+						log.Errorf("failed to get assignment: %s", err)
+					} else {
+						offsets, err := consumer.Position(partitions)
+						if err != nil {
+							log.Errorf("failed to get positions: %s", err)
+						} else {
+							for _, offset := range offsets {
+								result.offset = int64(offset.Offset)
+							}
+							result.lastMessageTime = time.Now()
+						}
+					}
+				}
+			}
 		}
 	}
 
-	if err := r.Close(); err != nil {
+	if err := consumer.Close(); err != nil {
 		log.Info("error: failed to close reader: ", err)
 		result.status = false
 		result.err = err
@@ -249,16 +260,14 @@ func kafkaTopicChecker(check *KafkaTopicCheck) KafkaTopicResult {
 	return result
 }
 
-func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent, notifiers []Notifier) EventResult {
+func kafkaEventChecker(consumer *kafka.Consumer, kafkaEvent *KafkaEvent, notifiers []Notifier, kafkaTimeout int) EventResult {
 	result := EventResult{
 		status:  false,
 		err:     nil,
 		message: "",
 	}
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(time.Second*1))
-		message, err := reader.ReadMessage(ctx)
-		cancel()
+		message, err := consumer.ReadMessage(time.Second * time.Duration(kafkaTimeout))
 		if err != nil {
 			break
 		} else {
@@ -300,7 +309,7 @@ func kafkaEventChecker(reader MessageReader, kafkaEvent *KafkaEvent, notifiers [
 			}
 		}
 	}
-	if err := reader.Close(); err != nil {
+	if err := consumer.Close(); err != nil {
 		log.Error(" failed to close reader: ", err)
 	}
 	return result
@@ -354,11 +363,11 @@ func main() {
 
 		log.Debug("running kafka topic checks")
 		for index, check := range config.Butterbot.KafkaTopicChecks {
-			result := kafkaTopicChecker(&check)
+			result := kafkaTopicChecker(&check, config.KafkaTimeout)
 			// has the check result state diverged from the previous?
-			if result.lastMessage.Equal(check.LastMessage) && result.offset == check.Offset {
+			if result.lastMessageTime.Equal(check.lastMessageTime) && result.offset == check.Offset {
 				// is the current time greater than the last message time plus configured timeout?
-				if time.Now().After(check.LastMessage.Add(time.Duration(check.Parameters.Timeout) * time.Second)) {
+				if time.Now().After(check.lastMessageTime.Add(time.Duration(check.Parameters.Timeout) * time.Second)) {
 					if check.Status {
 						check.Message = check.Name + " is down"
 						err := notify(check.Notify, config.Butterbot.Notifiers, check.Message)
@@ -379,19 +388,28 @@ func main() {
 				}
 			}
 			config.Butterbot.KafkaTopicChecks[index].Offset = result.offset
-			config.Butterbot.KafkaTopicChecks[index].LastMessage = result.lastMessage
+			config.Butterbot.KafkaTopicChecks[index].lastMessageTime = result.lastMessageTime
 		}
 
 		log.Debug("running kafka event checks")
 		for _, event := range config.Butterbot.KafkaEvents {
-			reader := kafka.NewReader(kafka.ReaderConfig{
-				Brokers: []string{event.Host + ":" + event.Port},
-				Topic:   event.Topic,
-				GroupID: "butterbot",
+			consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
+				"bootstrap.servers": event.Host + ":" + event.Port,
+				"group.id":          "butterbot",
+				"auto.offset.reset": "smallest",
 			})
-			result := kafkaEventChecker(reader, &event, config.Butterbot.Notifiers)
-			if result.err != nil {
-				log.Error(result.err)
+			if err != nil {
+				log.Error(err)
+			} else {
+				err = consumer.SubscribeTopics([]string{event.Topic}, nil)
+				if err != nil {
+					log.Error(err)
+				} else {
+					result := kafkaEventChecker(consumer, &event, config.Butterbot.Notifiers, config.KafkaTimeout)
+					if result.err != nil {
+						log.Error(result.err)
+					}
+				}
 			}
 		}
 	}
