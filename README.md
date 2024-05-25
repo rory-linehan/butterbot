@@ -2,7 +2,7 @@
 
 ## Overview
 
-Passes butter by requesting configured external services, keeping track of responses, 
+Passes butter by requesting configured HTTP services, keeping track of responses, 
 and notifying of state changes.
 
 Can be configured to watch Kafka topics for new messages, 
